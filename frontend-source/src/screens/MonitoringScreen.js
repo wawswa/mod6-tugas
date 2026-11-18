@@ -17,10 +17,12 @@ import Animated, {
 import { useMqttSensor } from "../hooks/useMqttSensor.js";
 import { Api } from "../services/api.js";
 import { DataTable } from "../components/DataTable.js";
-import { TempOrb } from "../components/TempOrb.js";
+import { Pagination } from "../components/Pagination.js";
+import { TemperatureWave } from "../components/TemperatureWave.js";
 import { tokens } from "../theme/tokens.js";
 
 const { color, space, radius, shadow } = tokens;
+const PAGE_SIZE = 5;
 
 function StatusChip({ connectionState, hasError, onRetry }) {
 	const config = useMemo(() => {
@@ -107,6 +109,7 @@ export function MonitoringScreen() {
 	const [loading, setLoading] = useState(false);
 	const [refreshing, setRefreshing] = useState(false);
 	const [apiError, setApiError] = useState(null);
+	const [page, setPage] = useState(1);
 	const reduceMotion = useReducedMotion();
 
 	const fetchReadings = useCallback(async () => {
@@ -180,6 +183,24 @@ export function MonitoringScreen() {
 		}`;
 	}, [readings]);
 
+	const pageCount = Math.max(1, Math.ceil(readings.length / PAGE_SIZE));
+	// Clamp for display so a shrinking history never leaves an empty page.
+	const currentPage = Math.min(page, pageCount);
+	const pageItems = useMemo(() => {
+		const start = (currentPage - 1) * PAGE_SIZE;
+		return readings.slice(start, start + PAGE_SIZE);
+	}, [readings, currentPage]);
+	const rangeStart =
+		readings.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
+	const rangeEnd = Math.min(currentPage * PAGE_SIZE, readings.length);
+
+	const goPrev = useCallback(() => {
+		setPage(Math.max(1, currentPage - 1));
+	}, [currentPage]);
+	const goNext = useCallback(() => {
+		setPage(Math.min(pageCount, currentPage + 1));
+	}, [currentPage, pageCount]);
+
 	const tempLabel =
 		typeof temperature === "number" ? `${temperature.toFixed(2)}` : "--";
 
@@ -219,24 +240,24 @@ export function MonitoringScreen() {
 					</View>
 
 					<View
-						style={styles.orbStage}
+						style={styles.stage}
 						accessible
 						accessibilityLabel={`Current temperature ${tempLabel} degrees Celsius${
 							proximity ? `, ${proximity.statusWord}` : ""
 						}`}
 					>
-						<View style={styles.orbWrap}>
-							<TempOrb
-								tint={proximity ? proximity.statusColor : color.text}
-								beatKey={beatKey}
-								dimmed={
-									connectionState !== "connected" &&
-									connectionState !== "reconnecting"
-								}
-								size={320}
-							/>
-							<View style={styles.orbNumber} pointerEvents="none">
-								<View style={styles.orbNumberRow}>
+						<TemperatureWave
+							tint={proximity ? proximity.statusColor : color.primary}
+							beatKey={beatKey}
+							dimmed={
+								connectionState !== "connected" &&
+								connectionState !== "reconnecting"
+							}
+							height={188}
+						/>
+						<View style={styles.stageReadout} pointerEvents="none">
+							<View style={styles.readoutCard}>
+								<View style={styles.readoutRow}>
 									<Text
 										style={[
 											styles.temperatureText,
@@ -266,7 +287,9 @@ export function MonitoringScreen() {
 									>
 										{proximity.statusWord}
 									</Text>
-								) : null}
+								) : (
+									<Text style={styles.statusIdle}>Menunggu data sensor</Text>
+								)}
 							</View>
 						</View>
 					</View>
@@ -402,7 +425,7 @@ export function MonitoringScreen() {
 								typeof value === "number" ? Number(value).toFixed(2) : "--",
 						},
 					]}
-					data={readings}
+					data={pageItems}
 					keyExtractor={(item) => item.id}
 					loading={loading && !refreshing}
 					emptyTitle="No readings yet"
@@ -410,6 +433,18 @@ export function MonitoringScreen() {
 					emptyActionLabel="Refresh"
 					onEmptyAction={fetchReadings}
 				/>
+
+				{readings.length > 0 ? (
+					<Pagination
+						page={currentPage}
+						pageCount={pageCount}
+						start={rangeStart}
+						end={rangeEnd}
+						total={readings.length}
+						onPrev={goPrev}
+						onNext={goNext}
+					/>
+				) : null}
 			</ScrollView>
 		</View>
 	);
@@ -468,35 +503,37 @@ const styles = StyleSheet.create({
 		fontSize: 12,
 		fontWeight: "600",
 	},
-	orbStage: {
-		alignItems: "center",
-		gap: space.sm,
-		minHeight: 320,
-	},
-	orbWrap: {
-		width: 320,
-		height: 320,
-		alignSelf: "center",
+	stage: {
 		position: "relative",
+		marginTop: space.sm,
+		borderRadius: radius.card,
+		borderCurve: "continuous",
+		overflow: "hidden",
 	},
-	orbNumber: {
-		position: "absolute",
-		top: 0,
-		left: 0,
-		right: 0,
-		bottom: 0,
-		flexDirection: "column",
+	stageReadout: {
+		...StyleSheet.absoluteFillObject,
 		alignItems: "center",
 		justifyContent: "center",
-		gap: 2,
 	},
-	orbNumberRow: {
+	readoutCard: {
+		alignItems: "center",
+		gap: 1,
+		paddingVertical: 10,
+		paddingHorizontal: space.xxl,
+		borderRadius: radius.card,
+		borderCurve: "continuous",
+		backgroundColor: "rgba(255, 255, 255, 0.88)",
+		borderWidth: 1,
+		borderColor: "rgba(226, 232, 240, 0.9)",
+		boxShadow: shadow.card,
+	},
+	readoutRow: {
 		flexDirection: "row",
 		alignItems: "baseline",
 		gap: 6,
 	},
 	temperatureText: {
-		fontSize: 30,
+		fontSize: 34,
 		fontWeight: "700",
 		color: color.text,
 		fontVariant: ["tabular-nums"],
@@ -509,6 +546,11 @@ const styles = StyleSheet.create({
 	statusWord: {
 		fontSize: 13,
 		fontWeight: "700",
+	},
+	statusIdle: {
+		fontSize: 12,
+		fontWeight: "600",
+		color: color.text3,
 	},
 	metaBlock: {
 		gap: space.sm,
